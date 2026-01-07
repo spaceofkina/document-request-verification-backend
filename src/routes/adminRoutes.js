@@ -16,8 +16,23 @@ router.post('/requests/:id/verify', adminController.verifyDocument);
 // Dashboard
 router.get('/stats', adminController.getDashboardStats);
 
-// Document generation
+// === PDF GENERATION & VIEWING ===
+// View PDF (opens in browser)
+router.get('/requests/:id/view-pdf', adminController.viewPDF);
+
+// Download PDF (downloads file)
+router.get('/requests/:id/download-pdf', adminController.downloadPDF);
+
+// Preview template without data
+router.get('/templates/preview/:templateName', adminController.previewTemplate);
+
+// Get all available templates
+router.get('/templates', adminController.getAvailableTemplates);
+
+// Document generation preview (legacy - keep for compatibility)
 router.get('/requests/:id/preview', adminController.generateDocumentPreview);
+
+// Attachments
 router.get('/requests/:id/attachments/:filename', adminController.downloadAttachment);
 
 module.exports = router;

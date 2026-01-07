@@ -2,7 +2,10 @@ const DocumentRequest = require('../models/DocumentRequest');
 const User = require('../models/User');
 const templateService = require('../services/templateService');
 const moment = require('moment');
+const path = require('path');
+const fs = require('fs').promises;
 
+// === ORIGINAL METHODS (Keep all existing) ===
 exports.getAllRequests = async (req, res) => {
     try {
         const {
@@ -79,6 +82,10 @@ exports.getRequestDetails = async (req, res) => {
             ...att,
             downloadUrl: `/api/admin/requests/${id}/attachments/${att.filename}`
         }));
+        
+        // Add PDF preview URL
+        requestData.pdfPreviewUrl = `/api/admin/requests/${id}/view-pdf`;
+        requestData.pdfDownloadUrl = `/api/admin/requests/${id}/download-pdf`;
         
         res.json({
             success: true,
@@ -223,9 +230,11 @@ exports.getDashboardStats = async (req, res) => {
     }
 };
 
+// === UPDATED: Generate Document Preview (Now uses template files) ===
 exports.generateDocumentPreview = async (req, res) => {
     try {
         const { id } = req.params;
+        const { mode = 'preview' } = req.query; // 'preview' or 'download'
         
         const request = await DocumentRequest.findById(id)
             .populate('userId', 'firstName lastName email contactNumber address');
@@ -234,30 +243,198 @@ exports.generateDocumentPreview = async (req, res) => {
             return res.status(404).json({ error: 'Request not found' });
         }
         
-        // Generate document
-        const pdfBuffer = await templateService.generateDocument(
-            request.documentType,
-            {
-                ...request.toObject(),
-                barangayName: req.user.barangayName || 'Barangay',
-                userId: request.userId._id
-            }
-        );
+        // Map request type to template name
+        const templateMapping = {
+            'Barangay Clearance': 'barangay_clearance',
+            'Certificate of Residency': 'residency_certificate',
+            'Certificate of Indigency': 'certificate_of_indigency',
+            'Good Moral Certificate': 'good_moral_certificate',
+            'First Time Job Seeker Certificate': 'first_time_job_seeker_certificate',
+            'Business Permit': 'business_permit'
+        };
         
-        // Send as preview (inline)
+        const templateName = templateMapping[request.documentType] || 'barangay_clearance';
+        
+        // Prepare data for template
+        const templateData = {
+            requestDetails: request.toObject(),
+            userInfo: {
+                fullName: `${request.userId?.firstName || ''} ${request.userId?.lastName || ''}`.trim(),
+                address: request.userId?.address || request.permanentAddress,
+                contactNumber: request.userId?.contactNumber || request.cellphoneNumber
+            },
+            documentType: request.documentType,
+            includeSignature: true
+        };
+        
+        // Generate PDF from template
+        const pdfBuffer = await templateService.generatePDFFromTemplate(templateName, templateData);
+        
+        // Save generated PDF
+        const savedFile = await templateService.saveGeneratedPDF(pdfBuffer, request.requestId);
+        
+        // Update request with generated PDF info
+        request.generatedDocument = savedFile;
+        await request.save();
+        
+        // Set response headers
+        if (mode === 'download') {
+            res.set({
+                'Content-Type': 'application/pdf',
+                'Content-Disposition': `attachment; filename="${templateName}_${request.requestId}.pdf"`,
+                'Content-Length': pdfBuffer.length
+            });
+        } else {
+            // Preview mode (inline)
+            res.set({
+                'Content-Type': 'application/pdf',
+                'Content-Disposition': `inline; filename="preview_${request.requestId}.pdf"`,
+                'Content-Length': pdfBuffer.length
+            });
+        }
+        
+        res.send(pdfBuffer);
+        
+    } catch (error) {
+        console.error('Generate document preview error:', error);
+        res.status(500).json({ 
+            error: 'Server error generating document',
+            details: error.message 
+        });
+    }
+};
+
+// === NEW: View PDF (Inline in browser) ===
+exports.viewPDF = async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const request = await DocumentRequest.findById(id)
+            .populate('userId', 'firstName lastName');
+        
+        if (!request) {
+            return res.status(404).json({ error: 'Request not found' });
+        }
+        
+        // Check if PDF was already generated
+        let pdfBuffer;
+        
+        if (request.generatedDocument && request.generatedDocument.filePath) {
+            try {
+                // Read existing generated PDF
+                pdfBuffer = await fs.readFile(request.generatedDocument.filePath);
+            } catch (error) {
+                console.log('Existing PDF not found, generating new one');
+                // Generate new PDF
+                return exports.generateDocumentPreview(req, res);
+            }
+        } else {
+            // Generate new PDF
+            return exports.generateDocumentPreview(req, res);
+        }
+        
+        // Send as inline PDF for viewing
         res.set({
             'Content-Type': 'application/pdf',
-            'Content-Disposition': `inline; filename="preview_${request.requestId}.pdf"`,
+            'Content-Disposition': `inline; filename="${request.documentType.replace(/\s+/g, '_')}_${request.requestId}.pdf"`,
+            'Content-Length': pdfBuffer.length,
+            'X-Generated-At': request.generatedDocument.generatedAt || new Date()
+        });
+        
+        res.send(pdfBuffer);
+        
+    } catch (error) {
+        console.error('View PDF error:', error);
+        res.status(500).json({ error: 'Server error viewing PDF' });
+    }
+};
+
+// === NEW: Download PDF ===
+exports.downloadPDF = async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const request = await DocumentRequest.findById(id);
+        
+        if (!request) {
+            return res.status(404).json({ error: 'Request not found' });
+        }
+        
+        // Check if PDF was already generated
+        if (!request.generatedDocument || !request.generatedDocument.filePath) {
+            // Generate PDF first
+            req.query = { mode: 'download' };
+            return exports.generateDocumentPreview(req, res);
+        }
+        
+        const filePath = request.generatedDocument.filePath;
+        const fileName = request.generatedDocument.fileName || 
+                        `${request.documentType.replace(/\s+/g, '_')}_${request.requestId}.pdf`;
+        
+        // Check if file exists
+        try {
+            await fs.access(filePath);
+        } catch (error) {
+            // Regenerate if file not found
+            req.query = { mode: 'download' };
+            return exports.generateDocumentPreview(req, res);
+        }
+        
+        // Download the file
+        res.download(filePath, fileName, (error) => {
+            if (error) {
+                console.error('Download PDF error:', error);
+                res.status(500).json({ error: 'Error downloading file' });
+            }
+        });
+        
+    } catch (error) {
+        console.error('Download PDF error:', error);
+        res.status(500).json({ error: 'Server error downloading PDF' });
+    }
+};
+
+// === NEW: Get Available Templates ===
+exports.getAvailableTemplates = async (req, res) => {
+    try {
+        const templates = await templateService.getAvailableTemplates();
+        
+        res.json({
+            success: true,
+            count: templates.length,
+            templates: templates
+        });
+    } catch (error) {
+        console.error('Get templates error:', error);
+        res.status(500).json({ error: 'Server error getting templates' });
+    }
+};
+
+// === NEW: Preview Template (without data) ===
+exports.previewTemplate = async (req, res) => {
+    try {
+        const { templateName } = req.params;
+        
+        const pdfBuffer = await templateService.previewTemplate(templateName);
+        
+        res.set({
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `inline; filename="template_${templateName}.pdf"`,
             'Content-Length': pdfBuffer.length
         });
         
         res.send(pdfBuffer);
+        
     } catch (error) {
-        console.error('Generate preview error:', error);
-        res.status(500).json({ error: 'Server error generating preview' });
+        console.error('Preview template error:', error);
+        res.status(500).json({ 
+            error: 'Template preview error',
+            message: error.message 
+        });
     }
 };
 
+// === ORIGINAL: Download Attachment ===
 exports.downloadAttachment = async (req, res) => {
     try {
         const { id, filename } = req.params;
