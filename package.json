@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.22.0",
+    "@tensorflow/tfjs-backend-cpu": "^4.22.0",
+    "@tensorflow/tfjs-node": "^4.22.0",
     "bcryptjs": "^2.4.3",
     "canvas": "^3.2.0",
     "cors": "^2.8.5",
@@ -28,7 +30,7 @@
     "nodemailer": "^6.10.1",
     "pdf-parse": "^2.4.5",
     "pdfkit": "^0.14.0",
-    "sharp": "^0.33.5",
+    "sharp": "^0.33.0",
     "tesseract.js": "^5.1.1",
     "winston": "^3.19.0"
   },
