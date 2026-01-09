@@ -9,14 +9,13 @@
     "setup": "node setup.js",
     "setup:reset": "node setup.js --reset",
     "seed": "node -e \"require('./src/utils/seedData.js')().then(() => process.exit(0)).catch(() => process.exit(1))\"",
-    "test-tf": "node test-tf.js"
+    "test-tf": "node test-tf.js",
+    "train": "node backend/train-cnn.js"
   },
   "dependencies": {
-    "@tensorflow/tfjs": "^4.22.0",
-    "@tensorflow/tfjs-backend-cpu": "^4.22.0",
-    "@tensorflow/tfjs-node": "^4.22.0",
+    "@tensorflow/tfjs-node": "4.22.0",
+    "axios": "^1.13.2",
     "bcryptjs": "^2.4.3",
-    "canvas": "^3.2.0",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "express": "^4.22.1",
@@ -30,7 +29,7 @@
     "nodemailer": "^6.10.1",
     "pdf-parse": "^2.4.5",
     "pdfkit": "^0.14.0",
-    "sharp": "^0.33.0",
+    "sharp": "^0.33.5",
     "tesseract.js": "^5.1.1",
     "winston": "^3.19.0"
   },

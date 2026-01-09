@@ -1,7 +1,8 @@
 {
-  "totalImages": 130,
-  "documentTypes": 13,
-  "accuracy": 0.92,
-  "trainingDate": "2026-01-08T02:16:36.117Z",
-  "syntheticData": true
+  "totalImages": 31,
+  "accuracy": 0.78,
+  "realTraining": true,
+  "trainingDate": "2026-01-09T06:19:08.516Z",
+  "documentTypes": 10,
+  "realImages": 31
 }
